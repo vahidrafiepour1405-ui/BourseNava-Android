@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#071221">
+<title>بورس‌نوا | دیده‌بان بازار ایران</title>
+<style>
+:root{color-scheme:dark;--bg:#071221;--panel:#102238;--gold:#f2be4b;--green:#00c795;--red:#ff626b;--muted:#a8b5c4}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 90% 0,#172b40 0,transparent 34%),var(--bg);color:#f5f7fa;font-family:Tahoma,Arial,sans-serif}header{padding:18px max(16px,calc((100vw - 1100px)/2));border-bottom:1px solid #25384b;display:flex;align-items:center;gap:13px}.logo{width:56px;height:56px;border:2px solid var(--gold);border-radius:16px;display:grid;place-items:center;color:var(--gold);font-size:29px;background:#0b1828}.brand h1{margin:0;color:var(--gold);font-size:25px}.brand p{margin:6px 0 0;color:var(--muted);font-size:12px}.wrap{max-width:1100px;margin:auto;padding:20px 16px 48px}.hero{padding:22px;border:1px solid #2b4055;background:linear-gradient(120deg,#13283c,#0b1726);border-radius:20px}.hero h2{margin:0 0 9px;font-size:22px}.hero p{color:var(--muted);line-height:1.9;margin:0}.status{display:inline-flex;gap:8px;align-items:center;margin-top:14px;padding:8px 12px;border-radius:30px;background:#243244;color:#ffd87c;font-size:12px}.dot{width:8px;height:8px;background:var(--gold);border-radius:50%}.controls{display:flex;gap:10px;margin:18px 0;flex-wrap:wrap}input{flex:1;min-width:200px;background:#102238;color:white;border:1px solid #30465c;border-radius:12px;padding:13px;font:inherit}button{border:0;border-radius:12px;padding:12px 17px;background:var(--gold);color:#17130a;font-weight:bold;font:inherit;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:12px}.card{background:var(--panel);border:1px solid #253c52;border-radius:16px;padding:15px}.card h3{color:var(--gold);margin:0 0 12px;font-size:17px}.muted{color:var(--muted);font-size:12px;line-height:1.8}.quote{display:flex;justify-content:space-between;gap:8px;padding:9px 0;border-top:1px solid #263c50}.value{font-weight:bold;direction:ltr;text-align:left}.green{color:var(--green)}.red{color:var(--red)}.section{margin:24px 0 12px;font-size:18px}.footer{border-top:1px solid #25384b;margin-top:28px;padding-top:18px;color:var(--muted);font-size:12px;line-height:2}.warning{border-right:3px solid var(--gold);padding:10px 13px;background:#1a2938;color:#e7d8b4;border-radius:8px;font-size:12px;line-height:1.9}a{color:var(--gold)}@media(max-width:480px){.brand h1{font-size:22px}.hero h2{font-size:19px}}
+</style></head>
+<body><header><div class="logo" aria-label="لوگوی بورس‌نوا">↗</div><div class="brand"><h1>بورس‌نوا</h1><p>دیده‌بان هوشمند بازار سرمایه ایران</p></div></header>
+<main class="wrap"><section class="hero"><h2>بازار را با داده معتبر دنبال کن</h2><p>جست‌وجوی نمادها، بررسی قیمت و گزارش روزانه ۲۰ نماد. داده تأییدنشده یا سیگنال حدسی به‌عنوان واقعیت نمایش داده نمی‌شود.</p><div class="status" id="status"><span class="dot"></span><span>در حال بررسی اتصال…</span></div></section>
+<div class="controls"><input id="search" placeholder="جست‌وجوی نماد، مثل فملی" autocomplete="off"><button id="refresh">به‌روزرسانی داده</button></div>
+<h2 class="section">نمادهای منتخب</h2><section class="grid" id="symbols"><article class="card"><h3>در انتظار دریافت داده</h3><p class="muted">قیمت فقط پس از دریافت از API نمایش داده می‌شود.</p></article></section>
+<h2 class="section">وضعیت داده و تحلیل</h2><section class="card"><h3 id="reportTitle">گزارش بازار</h3><p class="muted" id="report">اتصال به سرویس بازار در حال بررسی است.</p><div class="warning">قیمت بازار با سیگنال خرید/فروش یکی نیست. تا زمان تأیید روش تحلیلی، سیگنال‌ها روی «انتظار» می‌مانند.</div></section>
+<div class="footer">منبع داده موردنظر: TSETMC • زمان‌ها به UTC ثبت می‌شوند. این ابزار توصیه قطعی سرمایه‌گذاری نیست.<br>نسخه وب بورس‌نوا</div></main>
+<script>
+const API='https://boursenava-api.onrender.com';
+const statusEl=document.getElementById('status'),list=document.getElementById('symbols'),report=document.getElementById('report'),search=document.getElementById('search');
+let rows=[];
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmt(n){return n==null?'—':Number(n).toLocaleString('fa-IR',{maximumFractionDigits:2});}
+function paint(){
+ const q=search.value.trim().toLocaleLowerCase('fa');
+ const filtered=rows.filter(x=>(x.symbol+' '+(x.name||'')).toLocaleLowerCase('fa').includes(q));
+ if(!filtered.length){list.innerHTML='<article class="card"><h3>داده‌ای برای نمایش نیست</h3><p class="muted">اگر نمادی پیدا نشد، اتصال API یا پاسخ منبع را بررسی می‌کنیم؛ قیمت ساختگی نمایش داده نمی‌شود.</p></article>';return;}
+ list.innerHTML=filtered.map(x=>'<article class="card"><h3>'+esc(x.symbol)+(x.name?' — '+esc(x.name):'')+'</h3><div class="quote"><span class="muted">آخرین قیمت (ریال)</span><span class="value">'+fmt(x.last_price_rial)+'</span></div><div class="quote"><span class="muted">قیمت پایانی (ریال)</span><span class="value">'+fmt(x.closing_price_rial)+'</span></div><div class="quote"><span class="muted">تغییر روزانه</span><span class="value '+(x.change_percent>0?'green':x.change_percent<0?'red':'')+'">'+(x.change_percent==null?'—':fmt(x.change_percent)+'٪')+'</span></div><div class="quote"><span class="muted">حجم</span><span class="value">'+fmt(x.volume)+'</span></div><p class="muted">وضعیت: '+esc(x.status)+' • منبع: '+esc(x.source||'TSETMC')+'</p></article>').join('');
+}
+async function load(){
+ statusEl.innerHTML='<span class="dot"></span><span>در حال اتصال به API…</span>';
+ try{
+  const r=await fetch(API+'/api/signals?symbols='+encodeURIComponent('فملی,وبملت,شپنا,شبندر,شتران'),{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const data=await r.json(); rows=Array.isArray(data.signals)?data.signals:[];
+  const live=rows.filter(x=>x.status==='LIVE').length;
+  statusEl.innerHTML='<span class="dot"></span><span>'+ (data.status==='LIVE'?'داده دریافت شد':data.status==='PARTIAL'?'داده ناقص؛ '+live+' نماد معتبر':'داده معتبر در دسترس نیست')+'</span>';
+  report.textContent='منبع: '+(data.source||'TSETMC')+' | نمادهای دارای داده معتبر: '+live+' از '+rows.length+'. '+(data.message||'');
+  paint();
+ }catch(e){
+  rows=[];paint();statusEl.innerHTML='<span class="dot"></span><span>اتصال API برقرار نشد</span>';
+  report.textContent='سایت وب منتشر شده است، اما سرویس API هنوز در دسترس نیست یا پاسخ نداده است ('+e.message+'). پس از استقرار سرویس در Render، دوباره به‌روزرسانی را بزنید. هیچ قیمت ساختگی نمایش داده نمی‌شود.';
+ }
+}
+document.getElementById('refresh').addEventListener('click',load);search.addEventListener('input',paint);load();
+</script></body></html>
