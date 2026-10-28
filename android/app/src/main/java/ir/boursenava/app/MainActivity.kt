@@ -36,7 +36,7 @@ class MainActivity : Activity() {
             gravity = Gravity.RIGHT
         })
         root.addView(TextView(this).apply {
-            text = "نمایش قیمت بازار از منبع TSETMC؛ سیگنال خریدوفروش فقط پس از اعتبارسنجی"
+            text = "قیمت‌های بازار به‌صورت آنلاین از منبع TSETMC دریافت می‌شوند."
             textSize = 14f
             setTextColor(Color.LTGRAY)
             gravity = Gravity.RIGHT
@@ -119,7 +119,7 @@ class MainActivity : Activity() {
                     if (match == null && results.length() > 0) match = results.optJSONObject(0)
                     val code = match?.opt("insCode")?.toString()
                     if (code.isNullOrBlank()) {
-                        rows.add(symbol to "داده معتبر نماد دریافت نشد؛ سیگنال صادر نشده است.")
+                        rows.add(symbol to "اطلاعات این نماد فعلاً از منبع دریافت نشد.")
                         continue
                     }
                     val closing = request("ClosingPrice/GetClosingPriceInfo/$"+"code")
@@ -130,16 +130,16 @@ class MainActivity : Activity() {
                     val volume = num(quote, "qTotTran5J", "zTotTran", "volume")
                     val price = last ?: close
                     if (price == null) {
-                        rows.add(symbol to "قیمت معتبر در پاسخ منبع نبود؛ سیگنال صادر نشده است.")
+                        rows.add(symbol to "قیمت معتبر در پاسخ منبع موجود نبود.")
                         continue
                     }
                     good++
-                    val change = if (prev != null) " | تغییر: $"+"{DecimalFormat(\"0.00\").format((price / prev - 1) * 100)}٪" else ""
-                    val volumeText = volume?.let { " | حجم: $"+"{DecimalFormat(\"#,###\").format(it)}" } ?: ""
-                    val detail = "آخرین قیمت: $"+"{DecimalFormat(\"#,###\").format(price)} ریال$"+"change$"+"volumeText\nمنبع: TSETMC API\nوضعیت: قیمت دریافت شد؛ پیشنهاد خرید/فروش تأییدشده موجود نیست."
+                    val change = if (prev != null) " | تغییر: " + DecimalFormat("0.00").format((price / prev - 1) * 100) + "٪" else ""
+                    val volumeText = volume?.let { " | حجم: " + DecimalFormat("#,###").format(it) } ?: ""
+                    val detail = "آخرین قیمت: " + DecimalFormat("#,###").format(price) + " ریال" + change + volumeText + "\nمنبع: TSETMC API\nوضعیت: قیمت دریافت شد؛ سیگنال تأییدشده در این نسخه فعال نیست."
                     rows.add(symbol to detail)
                 } catch (e: Exception) {
-                    rows.add(symbol to "اتصال یا پاسخ منبع ناموفق بود. قیمت و سیگنال حدسی نمایش داده نمی‌شود.")
+                    rows.add(symbol to "دریافت اطلاعات از منبع آنلاین ناموفق بود؛ برای تازه‌سازی دوباره تلاش کن.")
                 }
             }
             runOnUiThread {
