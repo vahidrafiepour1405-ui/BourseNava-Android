@@ -35,7 +35,7 @@ class MainActivity : Activity() {
             layoutDirection = ViewGroup.LAYOUT_DIRECTION_RTL
         }
         brand.addView(ImageView(this).apply {
-            setImageResource(ir.boursenava.app.R.drawable.boursenava_logo)
+            setImageResource(resources.getIdentifier("boursenava_logo", "drawable", packageName))
             contentDescription = "لوگوی بورس‌نوا"
             scaleType = ImageView.ScaleType.FIT_CENTER
         }, LinearLayout.LayoutParams(64, 64))
