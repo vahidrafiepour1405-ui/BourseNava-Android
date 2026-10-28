@@ -29,12 +29,24 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(7, 18, 33))
             layoutDirection = ViewGroup.LAYOUT_DIRECTION_RTL
         }
-        root.addView(TextView(this).apply {
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+            layoutDirection = ViewGroup.LAYOUT_DIRECTION_RTL
+        }
+        brand.addView(ImageView(this).apply {
+            setImageResource(ir.boursenava.app.R.drawable.boursenava_logo)
+            contentDescription = "لوگوی بورس‌نوا"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(64, 64))
+        brand.addView(TextView(this).apply {
             text = "بورس‌نوا"
             textSize = 30f
             setTextColor(Color.rgb(242, 190, 75))
-            gravity = Gravity.RIGHT
+            gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+            setPadding(10, 0, 0, 0)
         })
+        root.addView(brand)
         root.addView(TextView(this).apply {
             text = "دیده‌بان بازار ایران • جست‌وجو میان نمادهای دریافتی از TSETMC"
             textSize = 14f
