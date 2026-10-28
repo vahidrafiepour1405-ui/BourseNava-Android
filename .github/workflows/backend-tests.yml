@@ -1,4 +1,4 @@
-name: Backend tests
+name: Backend tests and market source check
 on:
   push:
     branches: [ main ]
@@ -27,3 +27,42 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r requirements.txt pytest pytest-asyncio
       - run: pytest -q
+      - name: Diagnose public market endpoints (no credentials)
+        working-directory: .
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          import urllib.error
+
+          urls = {
+              "cdn_tsetmc_search": "https://cdn.tsetmc.com/api/Instrument/GetInstrumentSearch/%D9%81%D9%85%D9%84%DB%8C",
+              "webgw_tse_marketwatch": "https://webgw.tse.ir/InstrumentProvider/api/v1/MarketWatch/MarketWatchCash/fa",
+          }
+          headers = {
+              "User-Agent": "Mozilla/5.0 (compatible; BourseNava endpoint diagnostic)",
+              "Accept": "application/json,*/*",
+              "Referer": "https://www.tsetmc.com/",
+          }
+          for name, url in urls.items():
+              req = urllib.request.Request(url, headers=headers)
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as response:
+                      body = response.read()
+                      try:
+                          parsed = json.loads(body.decode("utf-8-sig"))
+                          if isinstance(parsed, dict):
+                              keys = list(parsed.keys())[:12]
+                              search = parsed.get("instrumentSearch")
+                              exact = any(isinstance(x, dict) and str(x.get("lVal18AFC", "")).strip() == "فملی" for x in (search if isinstance(search, list) else []))
+                          else:
+                              keys = []
+                              exact = False
+                          print(f"RESULT {name}: HTTP={response.status} bytes={len(body)} json=yes keys={keys} exact_femelli={exact}")
+                      except Exception as exc:
+                          print(f"RESULT {name}: HTTP={response.status} bytes={len(body)} json=no parse_error={type(exc).__name__}")
+              except urllib.error.HTTPError as exc:
+                  print(f"RESULT {name}: HTTP={exc.code} error=HTTPError")
+              except Exception as exc:
+                  print(f"RESULT {name}: error={type(exc).__name__}: {str(exc)[:180]}")
+          PY
