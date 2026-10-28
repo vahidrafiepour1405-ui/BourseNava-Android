@@ -35,7 +35,7 @@ def number(obj: dict, *keys: str):
         if value is not None:
             try:
                 n = float(value)
-                if n > 0:
+                if n >= 0:
                     return n
             except (TypeError, ValueError):
                 continue
@@ -67,8 +67,6 @@ async def quote_for_symbol(client: httpx.AsyncClient, symbol: str) -> dict:
          str(item.get("lVal18AFC", "")).strip() == safe_symbol),
         None,
     )
-    if match is None and results:
-        match = next((item for item in results if isinstance(item, dict)), None)
     if not match:
         return {"symbol": safe_symbol, "status": "INSUFFICIENT_DATA", "message": "نماد در پاسخ منبع پیدا نشد."}
 
@@ -88,7 +86,7 @@ async def quote_for_symbol(client: httpx.AsyncClient, symbol: str) -> dict:
     if last is None and close is None:
         return {"symbol": safe_symbol, "status": "INSUFFICIENT_DATA", "message": "قیمت معتبر از منبع دریافت نشد."}
 
-    price = last or close
+    price = last if last is not None else close
     change_pct = round(((price / prev) - 1) * 100, 2) if prev else None
     return {
         "symbol": str(match.get("lVal18AFC") or safe_symbol),
@@ -118,7 +116,11 @@ async def status():
         async with httpx.AsyncClient(headers=HEADERS, timeout=10.0, follow_redirects=True) as client:
             data = await get_json(client, "Instrument/GetInstrumentSearch/%D9%81%D9%85%D9%84%DB%8C")
         rows = data.get("instrumentSearch", []) if isinstance(data, dict) else []
-        reachable = isinstance(rows, list) and len(rows) > 0
+        reachable = isinstance(rows, list) and any(
+            isinstance(row, dict) and str(row.get("lVal18AFC", "")).strip() == "فملی"
+            and bool(row.get("insCode") or row.get("insCode2") or row.get("insCode3"))
+            for row in rows
+        )
         return {
             "status": "LIVE" if reachable else "INSUFFICIENT_DATA",
             "source": "TSETMC REST API",
