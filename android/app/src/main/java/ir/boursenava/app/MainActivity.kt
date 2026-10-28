@@ -53,7 +53,7 @@ class MainActivity : Activity() {
         search = EditText(this).apply {
             hint = "جست‌وجوی نماد یا نام شرکت، مثلاً فملی"
             textSize = 15f
-            singleLine = true
+            setSingleLine(true)
             setTextColor(Color.WHITE)
             setHintTextColor(Color.LTGRAY)
             setPadding(12, 4, 12, 4)
