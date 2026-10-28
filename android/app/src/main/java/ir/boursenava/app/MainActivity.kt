@@ -13,7 +13,7 @@ import java.net.URLEncoder
 import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
-    private val apiBase = "https://YOUR-BOURSENAVA-API.onrender.com"
+    private val apiBase = "https://boursenava-api.onrender.com"
     private lateinit var status: TextView
     private lateinit var list: LinearLayout
     override fun onCreate(savedInstanceState: Bundle?) {
