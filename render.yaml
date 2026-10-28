@@ -3,6 +3,8 @@ services:
     name: boursenava-api
     runtime: docker
     plan: free
+    region: frankfurt
     rootDir: backend
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
+    autoDeployTrigger: commit
