@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
 from typing import Any
-import asyncio
+import os
 import re
 
 import httpx
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="BourseNava API", version="1.0.0")
+app = FastAPI(title="BourseNava API", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,126 +16,175 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE = "https://cdn.tsetmc.com/api"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; BourseNava/1.0; read-only)",
-    "Accept": "application/json,text/plain,*/*",
-    "Referer": "https://www.tsetmc.com/",
-}
+MAJID_BASE = "https://api.majidapi.ir/bourse"
 DEFAULT_SYMBOLS = ["فملی", "وبملت", "شپنا", "شبندر", "شتران"]
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; BourseNava/1.1; read-only)",
+    "Accept": "application/json,text/plain,*/*",
+}
+SYMBOL_KEYS = ("symbol", "ticker", "namad", "lVal18AFC", "نماد", "نام نماد")
+PRICE_KEYS = (
+    "lastPrice", "last_price", "last", "price", "close", "closingPrice",
+    "pClosing", "pDrCotVal", "closing_price", "قیمت", "قیمت پایانی",
+    "آخرین قیمت", "آخرین",
+)
+VOLUME_KEYS = ("volume", "tradeVolume", "qTotTran5J", "حجم", "حجم معاملات")
 
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def number(obj: dict, *keys: str):
+def as_number(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        # API may return comma-separated Persian-market numbers.
+        value = str(value).replace(",", "").replace("٬", "").strip()
+        n = float(value)
+        return n if n >= 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def rows_from_payload(payload: Any) -> list:
+    if isinstance(payload, list):
+        return [x for x in payload if isinstance(x, dict)]
+    if isinstance(payload, dict):
+        for key in ("data", "result", "stocks", "items", "results", "list", "تعداد"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [x for x in value if isinstance(x, dict)]
+            if isinstance(value, dict):
+                nested = rows_from_payload(value)
+                if nested:
+                    return nested
+        # Some APIs return one stock object directly.
+        if any(k in payload for k in SYMBOL_KEYS):
+            return [payload]
+    return []
+
+
+def first_value(row: dict, keys: tuple):
     for key in keys:
-        value = obj.get(key)
-        if value is not None:
-            try:
-                n = float(value)
-                if n >= 0:
-                    return n
-            except (TypeError, ValueError):
-                continue
+        if row.get(key) not in (None, ""):
+            return row.get(key)
+    # Case-insensitive fallback for English field names.
+    lowered = {str(k).lower(): v for k, v in row.items()}
+    for key in keys:
+        value = lowered.get(key.lower())
+        if value not in (None, ""):
+            return value
     return None
 
 
-async def get_json(client: httpx.AsyncClient, path: str) -> Any:
-    response = await client.get(f"{BASE}/{path.lstrip('/')}")
+def find_row(rows: list, symbol: str):
+    for row in rows:
+        raw = first_value(row, SYMBOL_KEYS)
+        if raw is not None and str(raw).strip() == symbol:
+            return row
+    return None
+
+
+async def majid_get(client: httpx.AsyncClient, action: str, **params):
+    token = os.getenv("MAJIDAPI_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("MAJIDAPI_TOKEN is not configured")
+    query = {"action": action, "token": token}
+    query.update(params)
+    response = await client.get(MAJID_BASE, params=query)
     response.raise_for_status()
-    data = response.json()
-    if not isinstance(data, (dict, list)):
-        raise ValueError("Unexpected API response")
-    return data
+    payload = response.json()
+    if isinstance(payload, dict) and (
+        payload.get("success") is False or payload.get("status") in ("error", "failed")
+    ):
+        raise ValueError("MajidAPI returned an error response")
+    return payload
 
 
-async def quote_for_symbol(client: httpx.AsyncClient, symbol: str) -> dict:
-    safe_symbol = symbol.strip()[:32]
-    if not safe_symbol or not re.fullmatch(r"[\u0600-\u06FFa-zA-Z0-9_]+", safe_symbol):
-        return {"symbol": safe_symbol, "status": "INSUFFICIENT_DATA", "message": "نام نماد نامعتبر است."}
+async def load_market(client: httpx.AsyncClient):
+    # The documented stocks action contains the market symbol list and quote fields.
+    payload = await majid_get(client, "stocks")
+    rows = rows_from_payload(payload)
+    if not rows:
+        # Try the provider's documented last-trading-day action as a compatible fallback.
+        payload = await majid_get(client, "lastTradingDay")
+        rows = rows_from_payload(payload)
+    if not rows:
+        raise ValueError("MajidAPI response contained no recognizable stock rows")
+    return rows
 
-    search_data = await get_json(client, f"Instrument/GetInstrumentSearch/{safe_symbol}")
-    results = search_data.get("instrumentSearch", []) if isinstance(search_data, dict) else []
-    if isinstance(results, dict):
-        results = results.get("instrumentSearch", [])
-    if not isinstance(results, list):
-        results = []
-    match = next(
-        (item for item in results if isinstance(item, dict) and
-         str(item.get("lVal18AFC", "")).strip() == safe_symbol),
-        None,
-    )
-    if not match:
-        return {"symbol": safe_symbol, "status": "INSUFFICIENT_DATA", "message": "نماد در پاسخ منبع پیدا نشد."}
 
-    ins_code = match.get("insCode") or match.get("insCode2") or match.get("insCode3")
-    if not ins_code:
-        return {"symbol": safe_symbol, "status": "INSUFFICIENT_DATA", "message": "شناسه نماد از منبع دریافت نشد."}
-
-    raw = await get_json(client, f"ClosingPrice/GetClosingPriceInfo/{ins_code}")
-    quote = raw.get("closingPriceInfo", {}) if isinstance(raw, dict) else {}
-    if not isinstance(quote, dict) or not quote:
-        return {"symbol": safe_symbol, "status": "INSUFFICIENT_DATA", "message": "اطلاعات قیمت در پاسخ منبع موجود نیست."}
-
-    last = number(quote, "pDrCotVal", "pl", "lastPrice")
-    close = number(quote, "pClosing", "pc", "closingPrice")
-    prev = number(quote, "priceYesterday", "py", "yesterdayPrice")
-    volume = number(quote, "qTotTran5J", "zTotTran", "volume")
-    if last is None and close is None:
-        return {"symbol": safe_symbol, "status": "INSUFFICIENT_DATA", "message": "قیمت معتبر از منبع دریافت نشد."}
-
-    price = last if last is not None else close
-    change_pct = round(((price / prev) - 1) * 100, 2) if prev else None
+def quote_from_row(symbol: str, row: dict) -> dict:
+    price = as_number(first_value(row, PRICE_KEYS))
+    volume = as_number(first_value(row, VOLUME_KEYS))
+    if price is None:
+        return {
+            "symbol": symbol,
+            "status": "INSUFFICIENT_DATA",
+            "source": "MajidAPI",
+            "message": "نماد پیدا شد اما فیلد قیمت قابل تشخیص در پاسخ منبع وجود ندارد.",
+        }
     return {
-        "symbol": str(match.get("lVal18AFC") or safe_symbol),
-        "name": match.get("lVal30"),
-        "ins_code": str(ins_code),
+        "symbol": symbol,
         "status": "LIVE",
-        "source": "TSETMC REST API (read-only)",
-        "last_price_rial": price,
-        "closing_price_rial": close,
-        "previous_close_rial": prev,
-        "change_percent": change_pct,
+        "source": "MajidAPI",
+        "last_price": price,
         "volume": volume,
         "data_checked_at_utc": now_utc(),
-        "analysis": "قیمت دریافت شده است؛ برای پیشنهاد ورود/خروج، داده تاریخی کافی و آزمون‌شده لازم است.",
         "signal": "WAIT",
+        "analysis": "قیمت از منبع دریافت شده؛ برای سیگنال خرید یا فروش، داده تاریخی و معیارهای تأییدشده لازم است.",
     }
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "boursenava-api", "time_utc": now_utc()}
+    return {
+        "status": "ok",
+        "service": "boursenava-api",
+        "time_utc": now_utc(),
+        "market_source": "MajidAPI",
+    }
 
 
 @app.get("/api/status")
 async def status():
-    try:
-        async with httpx.AsyncClient(headers=HEADERS, timeout=10.0, follow_redirects=True) as client:
-            data = await get_json(client, "Instrument/GetInstrumentSearch/%D9%81%D9%85%D9%84%DB%8C")
-        rows = data.get("instrumentSearch", []) if isinstance(data, dict) else []
-        reachable = isinstance(rows, list) and any(
-            isinstance(row, dict) and str(row.get("lVal18AFC", "")).strip() == "فملی"
-            and bool(row.get("insCode") or row.get("insCode2") or row.get("insCode3"))
-            for row in rows
-        )
+    if not os.getenv("MAJIDAPI_TOKEN", "").strip():
         return {
-            "status": "LIVE" if reachable else "INSUFFICIENT_DATA",
-            "source": "TSETMC REST API",
-            "reachable": reachable,
+            "status": "OFFLINE",
+            "source": "MajidAPI",
+            "reachable": False,
             "checked_at_utc": now_utc(),
-            "note": "وضعیت دسترسی منبع؛ زنده بودن قیمت هر نماد جداگانه بررسی می‌شود.",
+            "note": "توکن در تنظیمات سرور تعریف نشده است.",
+        }
+    try:
+        async with httpx.AsyncClient(headers=HEADERS, timeout=15.0, follow_redirects=True) as client:
+            rows = await load_market(client)
+        return {
+            "status": "LIVE",
+            "source": "MajidAPI",
+            "reachable": True,
+            "rows_received": len(rows),
+            "checked_at_utc": now_utc(),
+            "note": "پاسخ بازار از API دریافت شد؛ زنده بودن قیمت هر نماد جداگانه بررسی می‌شود.",
+        }
+    except httpx.HTTPStatusError as exc:
+        return {
+            "status": "OFFLINE",
+            "source": "MajidAPI",
+            "reachable": False,
+            "http_status": exc.response.status_code,
+            "checked_at_utc": now_utc(),
+            "note": "API درخواست را نپذیرفت؛ توکن، دسترسی یا وضعیت سرویس باید بررسی شود.",
         }
     except Exception as exc:
         return {
             "status": "OFFLINE",
-            "source": "TSETMC REST API",
+            "source": "MajidAPI",
             "reachable": False,
-            "checked_at_utc": now_utc(),
             "error_type": type(exc).__name__,
-            "note": "منبع بازار از سرور قابل دریافت نیست؛ داده ساختگی نمایش داده نمی‌شود.",
+            "checked_at_utc": now_utc(),
+            "note": "داده معتبر از API دریافت نشد؛ هیچ قیمت ساختگی نمایش داده نمی‌شود.",
         }
 
 
@@ -144,43 +193,50 @@ async def signals(symbols: str = Query(",".join(DEFAULT_SYMBOLS), max_length=500
     requested = list(dict.fromkeys(s.strip() for s in symbols.split(",") if s.strip()))[:20]
     if not requested:
         requested = DEFAULT_SYMBOLS
-    results = []
-    failures = 0
+    if any(not re.fullmatch(r"[\u0600-\u06FFa-zA-Z0-9_]+", s) for s in requested):
+        return {"source": "MajidAPI", "status": "INSUFFICIENT_DATA", "signals": [], "message": "نام نماد نامعتبر است."}
     try:
-        async with httpx.AsyncClient(headers=HEADERS, timeout=12.0, follow_redirects=True) as client:
-            for symbol in requested:
-                try:
-                    results.append(await quote_for_symbol(client, symbol))
-                except Exception as exc:
-                    failures += 1
-                    results.append({
-                        "symbol": symbol,
-                        "status": "OFFLINE",
-                        "signal": "WAIT",
-                        "message": "داده معتبر این نماد دریافت نشد؛ از اعلام قیمت یا سیگنال حدسی خودداری شد.",
-                        "error_type": type(exc).__name__,
-                    })
-                await asyncio.sleep(0.15)
-    except Exception as exc:
+        async with httpx.AsyncClient(headers=HEADERS, timeout=20.0, follow_redirects=True) as client:
+            rows = await load_market(client)
+        results = []
+        for symbol in requested:
+            row = find_row(rows, symbol)
+            if row is None:
+                results.append({
+                    "symbol": symbol,
+                    "status": "INSUFFICIENT_DATA",
+                    "source": "MajidAPI",
+                    "signal": "WAIT",
+                    "message": "نماد در پاسخ منبع پیدا نشد؛ قیمت حدس زده نمی‌شود.",
+                })
+            else:
+                results.append(quote_from_row(symbol, row))
+        live_count = sum(1 for item in results if item["status"] == "LIVE")
+        overall = "LIVE" if live_count == len(results) else ("PARTIAL" if live_count else "INSUFFICIENT_DATA")
         return {
-            "source": "TSETMC REST API",
+            "source": "MajidAPI",
+            "status": overall,
+            "generated_at_utc": now_utc(),
+            "live_count": live_count,
+            "requested_count": len(results),
+            "signals": results,
+            "message": "قیمت‌ها در صورت دریافت از منبع نمایش داده می‌شوند؛ این نسخه هنوز سیگنال خرید/فروش تأییدشده تولید نمی‌کند.",
+        }
+    except httpx.HTTPStatusError as exc:
+        return {
+            "source": "MajidAPI",
             "status": "OFFLINE",
             "generated_at_utc": now_utc(),
             "signals": [],
-            "message": "اتصال به منبع بازار برقرار نشد؛ هیچ داده یا سیگنال ساختگی تولید نشده است.",
+            "message": "API درخواست را نپذیرفت؛ قیمت یا سیگنال ساختگی تولید نشده است.",
+            "http_status": exc.response.status_code,
+        }
+    except Exception as exc:
+        return {
+            "source": "MajidAPI",
+            "status": "OFFLINE",
+            "generated_at_utc": now_utc(),
+            "signals": [],
+            "message": "داده معتبر از API دریافت نشد؛ هیچ قیمت یا سیگنال ساختگی تولید نشده است.",
             "error_type": type(exc).__name__,
         }
-
-    live_count = sum(1 for item in results if item.get("status") == "LIVE")
-    overall = "LIVE" if live_count == len(results) and results else (
-        "PARTIAL" if live_count else ("OFFLINE" if failures else "INSUFFICIENT_DATA")
-    )
-    return {
-        "source": "TSETMC REST API (read-only)",
-        "status": overall,
-        "generated_at_utc": now_utc(),
-        "live_count": live_count,
-        "requested_count": len(results),
-        "signals": results,
-        "message": "قیمت‌های دریافتی، داده بازار هستند نه توصیه خرید یا فروش. فعلاً سیگنال ورود/خروج تأییدشده تولید نمی‌شود.",
-    }
