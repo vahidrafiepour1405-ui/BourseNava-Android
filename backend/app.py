@@ -104,6 +104,47 @@ async def majid_get(client: httpx.AsyncClient, path: str, action: str | None = N
     return payload
 
 
+
+TSETMC_BASE = "https://cdn.tsetmc.com/api"
+TSETMC_HEADERS = {
+    **HEADERS,
+    "Referer": "https://www.tsetmc.com/",
+    "Origin": "https://www.tsetmc.com",
+}
+
+async def tsetmc_get(client: httpx.AsyncClient, path: str):
+    response = await client.get(f"{TSETMC_BASE}/{path.lstrip('/')}", headers=TSETMC_HEADERS)
+    response.raise_for_status()
+    return response.json()
+
+async def load_tsetmc_market(client: httpx.AsyncClient):
+    # Community-documented TSETMC CDN endpoints; not an official SLA-backed API.
+    # Fetch only known watchlist symbols; never synthesize missing values.
+    rows = []
+    for symbol in DEFAULT_SYMBOLS:
+        try:
+            found = await tsetmc_get(client, f"Instrument/GetInstrumentSearch/{symbol}")
+            matches = found.get("instrumentSearch", []) if isinstance(found, dict) else []
+            exact = next((x for x in matches if str(x.get("lVal18AFC", "")).strip() == symbol), None)
+            if not exact or not exact.get("insCode"):
+                continue
+            info = await tsetmc_get(client, f"ClosingPrice/GetClosingPriceInfo/{exact['insCode']}")
+            quote = info.get("closingPriceInfo", {}) if isinstance(info, dict) else {}
+            if not isinstance(quote, dict):
+                continue
+            rows.append({
+                "symbol": symbol,
+                "lastPrice": quote.get("pDrCotVal"),
+                "close": quote.get("pClosing"),
+                "volume": quote.get("qTotTran5J"),
+                "source": "TSETMC_CDN",
+            })
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            continue
+    if rows:
+        return rows
+    raise ValueError("MajidAPI routes returned 404 and TSETMC CDN fallback returned no verified quotes")
+
 async def load_market(client: httpx.AsyncClient):
     # Provider documentation lists both the stocks action and the /bourse/most route.
     # Try documented routes in order; never infer market values if all fail.
@@ -128,7 +169,15 @@ async def load_market(client: httpx.AsyncClient):
             errors.append(f"{path}:{exc.response.status_code}")
             if exc.response.status_code not in (404, 405):
                 raise
-    raise ValueError("No documented MajidAPI market route returned recognizable rows (" + ",".join(errors) + ")")
+    # Fallback to the community-documented TSETMC CDN. It is not an official
+    # supported API, so status is LIVE only when real quote rows are returned.
+    try:
+        fallback_rows = await load_tsetmc_market(client)
+        if fallback_rows:
+            return fallback_rows
+    except Exception as exc:
+        errors.append("TSETMC_CDN:" + type(exc).__name__)
+    raise ValueError("No verified market rows received (" + ",".join(errors) + ")")
 
 
 def quote_from_row(symbol: str, row: dict) -> dict:
@@ -144,7 +193,7 @@ def quote_from_row(symbol: str, row: dict) -> dict:
     return {
         "symbol": symbol,
         "status": "LIVE",
-        "source": "MajidAPI",
+        "source": row.get("source", "MajidAPI"),
         "last_price": price,
         "volume": volume,
         "data_checked_at_utc": now_utc(),
@@ -178,7 +227,7 @@ async def status():
             rows = await load_market(client)
         return {
             "status": "LIVE",
-            "source": "MajidAPI",
+            "source": rows[0].get("source", "MajidAPI"),
             "reachable": True,
             "rows_received": len(rows),
             "checked_at_utc": now_utc(),
