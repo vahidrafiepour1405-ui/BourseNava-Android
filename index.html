@@ -11,7 +11,7 @@
 <div class="controls"><input id="search" placeholder="جست‌وجوی نماد، مثل فملی" autocomplete="off"><button id="refresh">به‌روزرسانی داده</button></div>
 <h2 class="section">نمادهای منتخب</h2><section class="grid" id="symbols"><article class="card"><h3>در انتظار دریافت داده</h3><p class="muted">قیمت فقط پس از دریافت از API نمایش داده می‌شود.</p></article></section>
 <h2 class="section">وضعیت داده و تحلیل</h2><section class="card"><h3 id="reportTitle">گزارش بازار</h3><p class="muted" id="report">اتصال به سرویس بازار در حال بررسی است.</p><div class="warning">قیمت بازار با سیگنال خرید/فروش یکی نیست. تا زمان تأیید روش تحلیلی، سیگنال‌ها روی «انتظار» می‌مانند.</div></section>
-<div class="footer">منبع داده موردنظر: TSETMC • زمان‌ها به UTC ثبت می‌شوند. این ابزار توصیه قطعی سرمایه‌گذاری نیست.<br>نسخه وب بورس‌نوا</div></main>
+<div class="footer">منبع داده موردنظر: MajidAPI • زمان‌ها به UTC ثبت می‌شوند. این ابزار توصیه قطعی سرمایه‌گذاری نیست.<br>نسخه وب بورس‌نوا</div></main>
 <script>
 const API='https://boursenava-api.onrender.com';
 const statusEl=document.getElementById('status'),list=document.getElementById('symbols'),report=document.getElementById('report'),search=document.getElementById('search');
@@ -22,7 +22,7 @@ function paint(){
  const q=search.value.trim().toLocaleLowerCase('fa');
  const filtered=rows.filter(x=>(x.symbol+' '+(x.name||'')).toLocaleLowerCase('fa').includes(q));
  if(!filtered.length){list.innerHTML='<article class="card"><h3>داده‌ای برای نمایش نیست</h3><p class="muted">اگر نمادی پیدا نشد، اتصال API یا پاسخ منبع را بررسی می‌کنیم؛ قیمت ساختگی نمایش داده نمی‌شود.</p></article>';return;}
- list.innerHTML=filtered.map(x=>'<article class="card"><h3>'+esc(x.symbol)+(x.name?' — '+esc(x.name):'')+'</h3><div class="quote"><span class="muted">آخرین قیمت (ریال)</span><span class="value">'+fmt(x.last_price_rial)+'</span></div><div class="quote"><span class="muted">قیمت پایانی (ریال)</span><span class="value">'+fmt(x.closing_price_rial)+'</span></div><div class="quote"><span class="muted">تغییر روزانه</span><span class="value '+(x.change_percent>0?'green':x.change_percent<0?'red':'')+'">'+(x.change_percent==null?'—':fmt(x.change_percent)+'٪')+'</span></div><div class="quote"><span class="muted">حجم</span><span class="value">'+fmt(x.volume)+'</span></div><p class="muted">وضعیت: '+esc(x.status)+' • منبع: '+esc(x.source||'TSETMC')+'</p></article>').join('');
+ list.innerHTML=filtered.map(x=>'<article class="card"><h3>'+esc(x.symbol)+(x.name?' — '+esc(x.name):'')+'</h3><div class="quote"><span class="muted">آخرین قیمت (ریال)</span><span class="value">'+fmt(x.last_price_rial??x.last_price)+'</span></div><div class="quote"><span class="muted">قیمت پایانی (ریال)</span><span class="value">'+fmt(x.closing_price_rial??x.closing_price)+'</span></div><div class="quote"><span class="muted">تغییر روزانه</span><span class="value '+(x.change_percent>0?'green':x.change_percent<0?'red':'')+'">'+(x.change_percent==null?'—':fmt(x.change_percent)+'٪')+'</span></div><div class="quote"><span class="muted">حجم</span><span class="value">'+fmt(x.volume)+'</span></div><p class="muted">وضعیت: '+esc(x.status)+' • منبع: '+esc(x.source||'TSETMC')+'</p></article>').join('');
 }
 async function load(){
  statusEl.innerHTML='<span class="dot"></span><span>در حال اتصال به API…</span>';
