@@ -119,7 +119,11 @@ async def load_market(client: httpx.AsyncClient):
             rows = rows_from_payload(payload)
             if rows:
                 return rows
-            errors.append(f"{path}:empty")
+            if isinstance(payload, dict):
+                shape = "object_keys=" + ",".join(str(k)[:40] for k in list(payload.keys())[:12])
+            else:
+                shape = "payload_type=" + type(payload).__name__
+            errors.append(f"{path}:{'action=' + action + ':' if action else ''}unrecognized:{shape}")
         except httpx.HTTPStatusError as exc:
             errors.append(f"{path}:{exc.response.status_code}")
             if exc.response.status_code not in (404, 405):
@@ -179,6 +183,16 @@ async def status():
             "rows_received": len(rows),
             "checked_at_utc": now_utc(),
             "note": "پاسخ بازار از API دریافت شد؛ زنده بودن قیمت هر نماد جداگانه بررسی می‌شود.",
+        }
+    except ValueError as exc:
+        return {
+            "status": "OFFLINE",
+            "source": "MajidAPI",
+            "reachable": False,
+            "error_type": "ValueError",
+            "diagnostic": str(exc)[:500],
+            "checked_at_utc": now_utc(),
+            "note": "پاسخ API دریافت شد اما ساختار داده بازار با قالب شناخته‌شده برنامه تطبیق ندارد؛ توکن افشا نشده است.",
         }
     except httpx.HTTPStatusError as exc:
         return {
