@@ -16,7 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MAJID_BASE = "https://api.majidapi.ir/bourse"
+MAJID_BASE = "https://api.majidapi.ir"
 DEFAULT_SYMBOLS = ["فملی", "وبملت", "شپنا", "شبندر", "شتران"]
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; BourseNava/1.1; read-only)",
@@ -86,13 +86,15 @@ def find_row(rows: list, symbol: str):
     return None
 
 
-async def majid_get(client: httpx.AsyncClient, action: str, **params):
+async def majid_get(client: httpx.AsyncClient, path: str, action: str | None = None, **params):
     token = os.getenv("MAJIDAPI_TOKEN", "").strip()
     if not token:
         raise RuntimeError("MAJIDAPI_TOKEN is not configured")
-    query = {"action": action, "token": token}
+    query = {"token": token}
+    if action:
+        query["action"] = action
     query.update(params)
-    response = await client.get(MAJID_BASE, params=query)
+    response = await client.get(f"{MAJID_BASE}{path}", params=query)
     response.raise_for_status()
     payload = response.json()
     if isinstance(payload, dict) and (
@@ -103,16 +105,26 @@ async def majid_get(client: httpx.AsyncClient, action: str, **params):
 
 
 async def load_market(client: httpx.AsyncClient):
-    # The documented stocks action contains the market symbol list and quote fields.
-    payload = await majid_get(client, "stocks")
-    rows = rows_from_payload(payload)
-    if not rows:
-        # Try the provider's documented last-trading-day action as a compatible fallback.
-        payload = await majid_get(client, "lastTradingDay")
-        rows = rows_from_payload(payload)
-    if not rows:
-        raise ValueError("MajidAPI response contained no recognizable stock rows")
-    return rows
+    # Provider documentation lists both the stocks action and the /bourse/most route.
+    # Try documented routes in order; never infer market values if all fail.
+    attempts = [
+        ("/bourse", "stocks"),
+        ("/bourse", "lastTradingDay"),
+        ("/bourse/most", None),
+    ]
+    errors = []
+    for path, action in attempts:
+        try:
+            payload = await majid_get(client, path, action)
+            rows = rows_from_payload(payload)
+            if rows:
+                return rows
+            errors.append(f"{path}:empty")
+        except httpx.HTTPStatusError as exc:
+            errors.append(f"{path}:{exc.response.status_code}")
+            if exc.response.status_code not in (404, 405):
+                raise
+    raise ValueError("No documented MajidAPI market route returned recognizable rows (" + ",".join(errors) + ")")
 
 
 def quote_from_row(symbol: str, row: dict) -> dict:
