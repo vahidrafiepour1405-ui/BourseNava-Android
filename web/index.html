@@ -25,22 +25,25 @@ function paint(){
  list.innerHTML=filtered.map(x=>'<article class="card"><h3>'+esc(x.symbol)+(x.name?' — '+esc(x.name):'')+'</h3><div class="quote"><span class="muted">آخرین قیمت (ریال)</span><span class="value">'+fmt(x.last_price_rial??x.last_price)+'</span></div><div class="quote"><span class="muted">قیمت پایانی (ریال)</span><span class="value">'+fmt(x.closing_price_rial??x.closing_price)+'</span></div><div class="quote"><span class="muted">تغییر روزانه</span><span class="value '+(x.change_percent>0?'green':x.change_percent<0?'red':'')+'">'+(x.change_percent==null?'—':fmt(x.change_percent)+'٪')+'</span></div><div class="quote"><span class="muted">حجم</span><span class="value">'+fmt(x.volume)+'</span></div><p class="muted">وضعیت: '+esc(x.status)+' • منبع: '+esc(x.source||'TSETMC')+'</p></article>').join('');
 }
 async function load(){
- statusEl.innerHTML='<span class="dot"></span><span>در حال بیدار کردن سرور و دریافت داده…</span>';
- report.textContent='درخواست به سرور ارسال شد؛ اگر سرویس خواب باشد ممکن است کمی زمان ببرد.';
+ statusEl.innerHTML='<span class="dot"></span><span>در حال اتصال به سرور…</span>';
+ report.textContent='ابتدا سلامت سرور بررسی می‌شود؛ سپس داده بازار درخواست خواهد شد.';
  const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),45000);
+ const timer=setTimeout(()=>controller.abort(),120000);
  try{
-  const r=await fetch(API+'/api/signals?symbols='+encodeURIComponent('فملی,وبملت,شپنا,شبندر,شتران'),{cache:'no-store',signal:controller.signal});
-  if(!r.ok)throw new Error('HTTP '+r.status);
+  const health=await fetch(API+'/health?check='+Date.now(),{cache:'no-store',signal:controller.signal});
+  if(!health.ok)throw new Error('سرور پاسخ سلامت نداد: HTTP '+health.status);
+  statusEl.innerHTML='<span class="dot"></span><span>سرور وصل شد؛ در حال دریافت داده بورس…</span>';
+  const r=await fetch(API+'/api/signals?symbols='+encodeURIComponent('فملی,وبملت,شپنا,شبندر,شتران')+'&_='+Date.now(),{cache:'no-store',signal:controller.signal});
+  if(!r.ok)throw new Error('API بازار HTTP '+r.status);
   const data=await r.json(); rows=Array.isArray(data.signals)?data.signals:[];
   const live=rows.filter(x=>x.status==='LIVE').length;
-  statusEl.innerHTML='<span class="dot"></span><span>'+ (data.status==='LIVE'?'داده دریافت شد':data.status==='PARTIAL'?'داده ناقص؛ '+live+' نماد معتبر':'سرور پاسخ داد؛ داده معتبر بازار موجود نیست')+'</span>';
+  statusEl.innerHTML='<span class="dot"></span><span>'+ (data.status==='LIVE'?'داده بازار دریافت شد':data.status==='PARTIAL'?'داده ناقص؛ '+live+' نماد معتبر':'سرور وصل است؛ منبع بورس داده معتبر نداده')+'</span>';
   report.textContent='منبع: '+(data.source||'نامشخص')+' | نمادهای دارای داده معتبر: '+live+' از '+rows.length+'. '+(data.message||'');
   paint();
  }catch(e){
   rows=[];paint();
-  statusEl.innerHTML='<span class="dot"></span><span>'+(e.name==='AbortError'?'مهلت اتصال تمام شد':'اتصال API برقرار نشد')+'</span>';
-  report.textContent=e.name==='AbortError'?'سرور طی ۴۵ ثانیه پاسخ نداد. ممکن است سرویس Render متوقف، در حال راه‌اندازی یا منبع بازار غیرقابل دسترس باشد.':'ارتباط با API ناموفق بود ('+e.message+'). هیچ قیمت ساختگی نمایش داده نمی‌شود.';
+  statusEl.innerHTML='<span class="dot"></span><span>'+(e.name==='AbortError'?'زمان انتظار اتصال تمام شد':esc(e.message))+'</span>';
+  report.textContent=e.name==='AbortError'?'پس از ۱۲۰ ثانیه پاسخ کامل دریافت نشد. سرور یا منبع داده بورس در دسترس نیست.':'مشکل اتصال: '+e.message+'. هیچ قیمت ساختگی نمایش داده نمی‌شود.';
  }finally{clearTimeout(timer);}
 }
 document.getElementById('refresh').addEventListener('click',load);search.addEventListener('input',paint);load();
