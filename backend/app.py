@@ -146,12 +146,10 @@ async def load_tsetmc_market(client: httpx.AsyncClient):
     raise ValueError("MajidAPI routes returned 404 and TSETMC CDN fallback returned no verified quotes")
 
 async def load_market(client: httpx.AsyncClient):
-    # Provider documentation lists both the stocks action and the /bourse/most route.
-    # Try documented routes in order; never infer market values if all fail.
+    # First try the provider's documented bulk endpoints.
     attempts = [
         ("/bourse", "stocks"),
         ("/bourse", "lastTradingDay"),
-        ("/bourse/most", None),
     ]
     errors = []
     for path, action in attempts:
@@ -166,11 +164,30 @@ async def load_market(client: httpx.AsyncClient):
                 shape = "payload_type=" + type(payload).__name__
             errors.append(f"{path}:{'action=' + action + ':' if action else ''}unrecognized:{shape}")
         except httpx.HTTPStatusError as exc:
-            errors.append(f"{path}:{exc.response.status_code}")
+            errors.append(f"{path}:action={action}:{exc.response.status_code}")
             if exc.response.status_code not in (404, 405):
                 raise
-    # Fallback to the community-documented TSETMC CDN. It is not an official
-    # supported API, so status is LIVE only when real quote rows are returned.
+
+    # The provider also documents a per-symbol search endpoint. Use it as a
+    # fallback when bulk routes are unavailable; only accept returned rows.
+    search_rows = []
+    for symbol in DEFAULT_SYMBOLS:
+        try:
+            payload = await majid_get(client, "/bourse", "search", symbol=symbol)
+            found_rows = rows_from_payload(payload)
+            if not found_rows and isinstance(payload, dict):
+                found_rows = [payload] if any(k in payload for k in SYMBOL_KEYS) else []
+            for row in found_rows:
+                if isinstance(row, dict):
+                    search_rows.append(row)
+        except httpx.HTTPStatusError as exc:
+            errors.append(f"/bourse:action=search:{symbol}:{exc.response.status_code}")
+            if exc.response.status_code not in (404, 405):
+                raise
+    if search_rows:
+        return search_rows
+
+    # TSETMC fallback is community-documented, not an official SLA-backed API.
     try:
         fallback_rows = await load_tsetmc_market(client)
         if fallback_rows:
